@@ -71,9 +71,7 @@ export default function Home() {
 
     try {
       const query = encodeURIComponent(title);
-      const res = await fetch(
-        `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=5&printType=books&key=${process.env.NEXT_PUBLIC_BOOKS_API_KEY}`
-      );
+        const res = await fetch(`/api/books?q=${query}`);
       if (!res.ok) throw new Error("Falha na requisição");
 
       const data = await res.json();
