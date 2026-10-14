@@ -1,22 +1,29 @@
 import { useState, useEffect } from "react";
+import styles from "../styles/Home.module.css";
+import BookCard from "../components/BookCard";
 
 const initialBooksData = [
   {
     id: 1,
     title: "Can't Hurt Me",
     author: "David Goggins",
-    cover:
-      "https://m.media-amazon.com/images/I/41sgicYWg8L._SY445_SX342_.jpg",
+    cover: "https://m.media-amazon.com/images/I/41sgicYWg8L._SY445_SX342_.jpg",
     status: "concluído",
   },
   {
     id: 2,
     title: "Como fazer amigos e influenciar pessoas",
     author: "Dale Carnegie",
-    cover:
-      "https://m.media-amazon.com/images/I/51ekLm860KL._SY445_SX342_.jpg",
+    cover: "https://m.media-amazon.com/images/I/51ekLm860KL._SY445_SX342_.jpg",
     status: "lendo",
   },
+];
+
+const FILTERS = [
+  { value: "todos", label: "Todos" },
+  { value: "lendo", label: "Lendo" },
+  { value: "leia", label: "Quero ler" },
+  { value: "concluído", label: "Concluídos" },
 ];
 
 export default function Home() {
@@ -24,23 +31,24 @@ export default function Home() {
   const [selectedStatus, setSelectedStatus] = useState("todos");
   const [darkMode, setDarkMode] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null); // { type: "error" | "success", text }
   const [hasMounted, setHasMounted] = useState(false);
 
+  // Carrega os dados salvos
   useEffect(() => {
-    setHasMounted(true);
     const savedBooks = localStorage.getItem("books");
-    if (savedBooks) {
-      setBooks(JSON.parse(savedBooks));
-    } else {
-      setBooks(initialBooksData);
-    }
+    setBooks(savedBooks ? JSON.parse(savedBooks) : initialBooksData);
+    setDarkMode(localStorage.getItem("darkMode") === "true");
+    setHasMounted(true);
   }, []);
 
+  // Salva livros e tema
   useEffect(() => {
-    if (hasMounted) {
-      localStorage.setItem("books", JSON.stringify(books));
-    }
-  }, [books, hasMounted]);
+    if (!hasMounted) return;
+    localStorage.setItem("books", JSON.stringify(books));
+    localStorage.setItem("darkMode", String(darkMode));
+  }, [books, darkMode, hasMounted]);
 
   if (!hasMounted) return null;
 
@@ -49,34 +57,66 @@ export default function Home() {
       ? books
       : books.filter((book) => book.status === selectedStatus);
 
-  const toggleDarkMode = () => setDarkMode(!darkMode);
-
-  const colors = {
-    primary: "#594747",
-    secondary: "#6743a5",
-    accent: "#7345d6",
-    dark: "#2e2e2e",
-    light: "#eeffdb",
-  };
+  const countFor = (status) =>
+    status === "todos"
+      ? books.length
+      : books.filter((book) => book.status === status).length;
 
   const handleAddBook = async () => {
-    if (!newTitle.trim()) return;
+    const title = newTitle.trim();
+    if (!title || loading) return;
 
-    const query = encodeURIComponent(newTitle);
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=intitle:${query}`);
-    const data = await res.json();
+    setLoading(true);
+    setMessage(null);
 
-    if (data.items && data.items.length > 0) {
-      const bookInfo = data.items[0].volumeInfo;
+    try {
+      const query = encodeURIComponent(title);
+      const res = await fetch(
+        `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=5&printType=books&key=${process.env.NEXT_PUBLIC_BOOKS_API_KEY}`
+      );
+      if (!res.ok) throw new Error("Falha na requisição");
+
+      const data = await res.json();
+      const info = data.items?.[0]?.volumeInfo;
+
+      if (!info) {
+        setMessage({
+          type: "error",
+          text: `Não encontramos "${title}". Confira o título e tente de novo.`,
+        });
+        return;
+      }
+
+      const foundTitle = info.title || title;
+      const alreadyAdded = books.some(
+        (book) => book.title.toLowerCase() === foundTitle.toLowerCase()
+      );
+      if (alreadyAdded) {
+        setMessage({
+          type: "error",
+          text: `"${foundTitle}" já está na sua lista.`,
+        });
+        return;
+      }
+
       const newBook = {
         id: crypto.randomUUID(),
-        title: bookInfo.title || newTitle,
-        author: bookInfo.authors ? bookInfo.authors[0] : "Autor desconhecido",
-        cover: bookInfo.imageLinks ? bookInfo.imageLinks.thumbnail : "",
+        title: foundTitle,
+        author: info.authors ? info.authors[0] : "Autor desconhecido",
+        cover: info.imageLinks?.thumbnail?.replace("http://", "https://") || "",
         status: "leia",
       };
+
       setBooks([newBook, ...books]);
       setNewTitle("");
+      setMessage({ type: "success", text: `"${foundTitle}" foi adicionado.` });
+    } catch {
+      setMessage({
+        type: "error",
+        text: "Não foi possível buscar o livro. Verifique sua conexão e tente de novo.",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -89,151 +129,89 @@ export default function Home() {
   };
 
   const handleDeleteBook = (id) => {
-    const confirmDelete = window.confirm("Tem certeza que deseja remover este livro?");
-    if (confirmDelete) {
+    if (window.confirm("Tem certeza que deseja remover este livro?")) {
       setBooks(books.filter((book) => book.id !== id));
     }
   };
 
   return (
-    <div
-      style={{
-        background: darkMode ? colors.dark : colors.light,
-        minHeight: "100vh",
-        padding: "2rem",
-        color: darkMode ? colors.light : colors.primary,
-        fontFamily: "Arial, sans-serif",
-        transition: "all 0.3s ease-in-out",
-      }}
-    >
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <h1
-          style={{
-            fontSize: "2.5rem",
-            marginBottom: "2rem",
-            fontWeight: "bold",
-            color: darkMode ? colors.accent : colors.secondary,
-            letterSpacing: "1px",
-            textAlign: "center",
-            width: "100%",
-          }}
-        >
-          📚 Meus Livros
-        </h1>
-        <div style={{ alignSelf: "flex-end" }}>
+    <div className={`${styles.page} ${darkMode ? styles.dark : ""}`}>
+      <div className={styles.container}>
+        <header className={styles.header}>
+          <div>
+            <h1 className={styles.title}>Meus livros</h1>
+            <p className={styles.subtitle}>
+              {countFor("concluído")} de {books.length} concluídos
+            </p>
+          </div>
           <button
-            onClick={toggleDarkMode}
-            style={{
-              background: "none",
-              border: `1px solid ${darkMode ? colors.light : colors.primary}`,
-              color: darkMode ? colors.light : colors.primary,
-              padding: "0.5rem 1rem",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
+            className={styles.themeButton}
+            onClick={() => setDarkMode(!darkMode)}
           >
-            {darkMode ? "Modo Claro" : "Modo Escuro"}
+            {darkMode ? "Modo claro" : "Modo escuro"}
+          </button>
+        </header>
+
+        <div className={styles.addForm}>
+          <input
+            className={styles.input}
+            type="text"
+            placeholder="Digite o título de um livro"
+            aria-label="Título do livro"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddBook()}
+          />
+          <button
+            className={styles.addButton}
+            onClick={handleAddBook}
+            disabled={loading}
+          >
+            {loading ? "Buscando..." : "Adicionar"}
           </button>
         </div>
-      </div>
 
-      <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem" }}>
-        <select
-          onChange={(e) => setSelectedStatus(e.target.value)}
-          value={selectedStatus}
-          style={{
-            padding: "0.5rem 1rem",
-            fontSize: "1rem",
-            borderRadius: "8px",
-            border: `1px solid ${darkMode ? colors.light : colors.primary}`,
-            background: darkMode ? colors.dark : "#fff",
-            color: darkMode ? colors.light : colors.primary,
-          }}
+        <p
+          className={`${styles.message} ${
+            message?.type === "error" ? styles.messageError : styles.messageSuccess
+          }`}
+          role="status"
         >
-          <option value="todos">Todos</option>
-          <option value="concluído">Concluído</option>
-          <option value="lendo">Lendo</option>
-          <option value="leia">Leia</option>
-        </select>
+          {message?.text}
+        </p>
 
-        <input
-          type="text"
-          placeholder="Adicione um livro..."
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleAddBook()}
-          style={{
-            flex: 1,
-            padding: "0.5rem 1rem",
-            borderRadius: "8px",
-            border: `1px solid ${darkMode ? colors.light : colors.primary}`,
-            background: darkMode ? colors.dark : "#fff",
-            color: darkMode ? colors.light : colors.primary,
-          }}
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
-        {filteredBooks.map((book) => (
-          <div
-            key={book.id}
-            style={{
-              background: darkMode ? "#1e1e1e" : "#fff",
-              borderRadius: "16px",
-              padding: "1.5rem",
-              width: "220px",
-              textAlign: "center",
-              boxShadow: darkMode
-                ? "0 4px 12px rgba(0, 0, 0, 0.5)"
-                : "0 4px 12px rgba(0, 0, 0, 0.1)",
-              transition: "all 0.3s ease-in-out",
-              color: darkMode ? colors.light : colors.primary,
-              position: "relative",
-            }}
-          >
-            <img
-              src={book.cover}
-              alt={`Capa do livro ${book.title}`}
-              style={{ width: "100%", height: "auto", borderRadius: "12px" }}
-            />
-            <h2 style={{ fontSize: "1.2rem", margin: "1rem 0 0.5rem" }}>{book.title}</h2>
-            <p style={{ fontWeight: "bold", marginBottom: "0.5rem" }}>{book.author}</p>
-
-            <select
-              value={book.status}
-              onChange={(e) => handleStatusChange(book.id, e.target.value)}
-              style={{
-                marginBottom: "0.5rem",
-                padding: "0.4rem",
-                borderRadius: "6px",
-                background: darkMode ? colors.dark : "#f4f4f4",
-                color: darkMode ? colors.light : colors.primary,
-                border: `1px solid ${darkMode ? colors.light : colors.primary}`,
-              }}
-            >
-              <option value="leia">Leia</option>
-              <option value="lendo">Lendo</option>
-              <option value="concluído">Concluído</option>
-            </select>
-
+        <div className={styles.filters}>
+          {FILTERS.map((filter) => (
             <button
-              onClick={() => handleDeleteBook(book.id)}
-              style={{
-                marginTop: "0.5rem",
-                background: "none",
-                border: `1px solid ${darkMode ? "#ff6b6b" : "#b00020"}`,
-                color: darkMode ? "#ff6b6b" : "#b00020",
-                padding: "0.4rem 0.6rem",
-                borderRadius: "6px",
-                cursor: "pointer",
-              }}
+              key={filter.value}
+              className={`${styles.filter} ${
+                selectedStatus === filter.value ? styles.filterActive : ""
+              }`}
+              onClick={() => setSelectedStatus(filter.value)}
             >
-              Remover
+              {filter.label}
+              <span className={styles.count}>{countFor(filter.value)}</span>
             </button>
+          ))}
+        </div>
+
+        {filteredBooks.length === 0 ? (
+          <p className={styles.empty}>
+            Nenhum livro aqui ainda. Digite um título acima para adicionar.
+          </p>
+        ) : (
+          <div className={styles.grid}>
+            {filteredBooks.map((book) => (
+              <BookCard
+                key={book.id}
+                book={book}
+                onStatusChange={handleStatusChange}
+                onDelete={handleDeleteBook}
+              />
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 }
-
